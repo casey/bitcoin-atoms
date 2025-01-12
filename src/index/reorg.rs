@@ -1,4 +1,4 @@
-use {super::*, updater::BlockData};
+use {super::*, anyhow::Ok, updater::BlockData};
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum Error {
@@ -78,11 +78,7 @@ impl Reorg {
     Ok(())
   }
 
-  pub(crate) fn update_savepoints(index: &Index, height: u32) -> Result {
-    if let redb::Durability::None = index.durability {
-      return Ok(());
-    }
-
+  pub(crate) fn is_savepoint_required(index: &Index, height: u32) -> Result<bool> {
     let height = u64::from(height);
 
     let last_savepoint_height = index
@@ -94,11 +90,26 @@ impl Reorg {
       .unwrap_or(0);
 
     let blocks = index.client.get_blockchain_info()?.headers;
-
-    if (height < SAVEPOINT_INTERVAL.into()
+    let result = (height < SAVEPOINT_INTERVAL.into()
       || height.saturating_sub(last_savepoint_height) >= SAVEPOINT_INTERVAL.into())
-      && blocks.saturating_sub(height) <= CHAIN_TIP_DISTANCE.into()
-    {
+      && blocks.saturating_sub(height) <= CHAIN_TIP_DISTANCE.into();
+
+    log::trace!(
+      "is_savepoint_required={}: height={}, last_savepoint_height={}, blocks={}",
+      result,
+      height,
+      last_savepoint_height,
+      blocks
+    );
+    Ok(result)
+  }
+
+  pub(crate) fn update_savepoints(index: &Index, height: u32) -> Result {
+    if let redb::Durability::None = index.durability {
+      return Ok(());
+    }
+
+    if Self::is_savepoint_required(index, height)? {
       let wtx = index.begin_write()?;
 
       let savepoints = wtx.list_persistent_savepoints()?.collect::<Vec<u64>>();
@@ -112,12 +123,12 @@ impl Reorg {
 
       let wtx = index.begin_write()?;
 
-      log::debug!("creating savepoint at height {}", height);
+      log::info!("creating savepoint at height {}", height);
       wtx.persistent_savepoint()?;
 
       wtx
         .open_table(STATISTIC_TO_COUNT)?
-        .insert(&Statistic::LastSavepointHeight.key(), &height)?;
+        .insert(&Statistic::LastSavepointHeight.key(), &height.into())?;
 
       Index::increment_statistic(&wtx, Statistic::Commits, 1)?;
       wtx.commit()?;
