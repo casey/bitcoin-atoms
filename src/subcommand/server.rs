@@ -485,6 +485,10 @@ impl Server {
 
     let mut state = config.state();
 
+    // Ignore error on purpose, see:
+    // https://github.com/rustls/rustls/issues/1938#issuecomment-2567954696
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let mut server_config = rustls::ServerConfig::builder()
       .with_no_client_auth()
       .with_cert_resolver(state.resolver());

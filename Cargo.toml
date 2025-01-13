@@ -81,7 +81,7 @@ regex.workspace = true
 reqwest.workspace = true
 rss = "2.0.1"
 rust-embed = "8.0.0"
-rustls = "0.23.20"
+rustls = { version  = "0.23.20", features = ["ring"] }
 rustls-acme = { version = "0.12.1", features = ["axum"] }
 serde-hex = "0.1.0"
 serde.workspace = true
