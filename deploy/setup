@@ -79,7 +79,7 @@ echo '[Service]' > $OVERRIDE
 echo "Environment=CHAIN=$CHAIN" >> $OVERRIDE
 echo "Environment=CSP_ORIGIN=$CSP_ORIGIN" >> $OVERRIDE
 
-if [[ $CHAIN == main ]]; then
+if [[ $CHAIN == main && $DOMAIN != "charlie.ordinals.net" ]]; then
   echo Environment=ORD_SERVER_DISABLE_JSON_API=true >> $OVERRIDE
 fi
 
