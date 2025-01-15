@@ -10,7 +10,8 @@ use {
     InputHtml, InscriptionHtml, InscriptionsBlockHtml, InscriptionsHtml, OutputHtml, PageContent,
     PageHtml, ParentsHtml, PreviewAudioHtml, PreviewCodeHtml, PreviewFontHtml, PreviewImageHtml,
     PreviewMarkdownHtml, PreviewModelHtml, PreviewPdfHtml, PreviewTextHtml, PreviewUnknownHtml,
-    PreviewVideoHtml, RareTxt, RuneHtml, RuneNotFoundHtml, RunesHtml, SatHtml, TransactionHtml,
+    PreviewVideoHtml, RareTxt, RuneHtml, RuneNotFoundHtml, RunesHtml, SatHtml, SatscardHtml,
+    TransactionHtml,
   },
   axum::{
     extract::{DefaultBodyLimit, Extension, Json, Path, Query},
@@ -279,6 +280,7 @@ impl Server {
         .route("/rune/{rune}", get(Self::rune))
         .route("/runes", get(Self::runes))
         .route("/runes/{page}", get(Self::runes_paginated))
+        .route("/satscard", get(Self::satscard))
         .route("/sat/{sat}", get(Self::sat))
         .route("/satpoint/{satpoint}", get(Self::satpoint))
         .route("/search", get(Self::search_by_query))
@@ -562,6 +564,10 @@ impl Server {
 
       Ok(Redirect::to(&format!("/{prefix}/{path}")).into_response())
     })
+  }
+
+  async fn satscard(Query(query): Query<satscard::Query>) -> SatscardHtml {
+    SatscardHtml { query }
   }
 
   async fn sat(

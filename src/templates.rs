@@ -22,6 +22,7 @@ pub(crate) use {
   rare::RareTxt,
   rune_not_found::RuneNotFoundHtml,
   sat::SatHtml,
+  satscard::SatscardHtml,
 };
 
 pub use {
@@ -50,6 +51,7 @@ pub mod rune;
 pub mod rune_not_found;
 pub mod runes;
 pub mod sat;
+mod satscard;
 pub mod status;
 pub mod transaction;
 

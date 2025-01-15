@@ -43,7 +43,7 @@ use {
     hash_types::{BlockHash, TxMerkleNode},
     hashes::Hash,
     policy::MAX_STANDARD_TX_WEIGHT,
-    script,
+    script, secp256k1,
     transaction::Version,
     Amount, Block, Network, OutPoint, Script, ScriptBuf, Sequence, SignedAmount, Transaction, TxIn,
     TxOut, Txid, Witness,
@@ -124,6 +124,7 @@ pub mod outgoing;
 mod re;
 mod representation;
 pub mod runes;
+mod satscard;
 pub mod settings;
 mod signer;
 pub mod subcommand;

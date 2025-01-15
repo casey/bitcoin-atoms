@@ -1,0 +1,18 @@
+<h1>Satscard</h1>
+
+%% let crate::satscard::Query { state, slot, address_suffix, nonce, signature, address } = &self.query;
+
+<dl>
+  <dt>state</dt>
+  <dd>{{ state }}</dd>
+  <dt>slot</dt>
+  <dd>{{ slot }}</dd>
+  <dt>address suffix</dt>
+  <dd>{{ address_suffix }}</dd>
+  <dt>nonce</dt>
+  <dd>{{ hex::encode(nonce) }}</dd>
+  <dt>signature</dt>
+  <dd>{{ signature }}</dd>
+  <dt>address</dt>
+  <dd>{{ address }}</dd>
+</dl>
