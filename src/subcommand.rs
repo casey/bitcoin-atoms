@@ -5,6 +5,7 @@ pub mod decode;
 pub mod env;
 pub mod epochs;
 pub mod find;
+mod flow;
 pub mod index;
 pub mod list;
 pub mod parse;
@@ -31,6 +32,8 @@ pub(crate) enum Subcommand {
   Epochs,
   #[command(about = "Find a satoshi's current location")]
   Find(find::Find),
+  #[command(about = "Display PSBT sat flow")]
+  Flow(flow::Flow),
   #[command(subcommand, about = "Index commands")]
   Index(index::IndexSubcommand),
   #[command(about = "List the satoshis in an output")]
@@ -67,6 +70,7 @@ impl Subcommand {
       Self::Env(env) => env.run(),
       Self::Epochs => epochs::run(),
       Self::Find(find) => find.run(settings),
+      Self::Flow(flow) => flow.run(settings),
       Self::Index(index) => index.run(settings),
       Self::List(list) => list.run(settings),
       Self::Parse(parse) => parse.run(),
