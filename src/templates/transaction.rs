@@ -5,6 +5,7 @@ pub struct TransactionHtml {
   pub chain: Chain,
   pub etching: Option<SpacedRune>,
   pub inscription_count: u32,
+  pub runestone: Option<Runestone>,
   pub transaction: Transaction,
   pub txid: Txid,
 }
@@ -48,6 +49,7 @@ mod tests {
       TransactionHtml {
         chain: Chain::Mainnet,
         etching: None,
+        runestone: None,
         inscription_count: 0,
         txid: transaction.compute_txid(),
         transaction,

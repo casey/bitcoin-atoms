@@ -524,6 +524,7 @@ fn get_transaction() {
     serde_json::from_str::<api::Transaction>(&response.text().unwrap()).unwrap(),
     api::Transaction {
       chain: Chain::Mainnet,
+      runestone: None,
       etching: None,
       inscription_count: 0,
       transaction,
