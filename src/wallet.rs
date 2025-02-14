@@ -216,6 +216,16 @@ impl Wallet {
     Ok(inscription)
   }
 
+  pub(crate) fn get_output(&self, output: &OutPoint) -> Result<Option<api::Output>> {
+    let output = self
+      .ord_client
+      .get(self.rpc_url.join(&format!("/output/{output}")).unwrap())
+      .send()?
+      .json()?;
+
+    Ok(output)
+  }
+
   pub(crate) fn inscription_exists(&self, inscription_id: InscriptionId) -> Result<bool> {
     Ok(
       !self

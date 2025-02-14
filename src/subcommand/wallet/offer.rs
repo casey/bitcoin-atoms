@@ -2,6 +2,7 @@ use super::*;
 
 pub mod accept;
 pub mod create;
+pub mod view;
 
 #[derive(Debug, Parser)]
 pub(crate) enum Offer {
@@ -9,6 +10,8 @@ pub(crate) enum Offer {
   Accept(accept::Accept),
   #[command(about = "Create offer to buy inscription")]
   Create(create::Create),
+  #[command(about = "View and offer")]
+  View(view::View),
 }
 
 impl Offer {
@@ -16,6 +19,7 @@ impl Offer {
     match self {
       Self::Accept(accept) => accept.run(wallet),
       Self::Create(create) => create.run(wallet),
+      Self::View(view) => view.run(wallet),
     }
   }
 }
