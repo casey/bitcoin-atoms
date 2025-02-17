@@ -273,7 +273,6 @@ impl Server {
           get(r::parent_inscriptions_paginated),
         )
         .route("/r/sat/{sat_number}", get(r::sat))
-        .route("/r/sat/{sat_number}/at/{index}", get(r::sat_at_index))
         .route("/r/sat/{sat_number}/{page}", get(r::sat_paginated))
         .route("/r/tx/{txid}", get(r::tx))
         .route(
@@ -291,6 +290,7 @@ impl Server {
         )
         .route("/r/inscription/{inscription_id}", get(r::inscription))
         .route("/r/metadata/{inscription_id}", get(r::metadata))
+        .route("/r/sat/{sat_number}/at/{index}", get(r::sat_at_index))
         .route(
           "/r/sat/{sat_number}/at/{index}/content",
           get(r::sat_at_index_content),
@@ -544,6 +544,25 @@ impl Server {
     if let Some(proxy) = server_config.proxy.as_ref() {
       if status == StatusCode::NOT_FOUND {
         return task::block_in_place(|| Server::proxy(proxy, &path));
+      }
+
+      // This is a workaround for the fact the the /r/sat/<SAT_NUMBER>/at/<INDEX>
+      // does not return a 404 when no inscription is present on the sat.
+      let regex = Regex::new(r"(?m)r\/sat\/\d+\/at\/-?\d+$").unwrap();
+      if regex.is_match(&path) {
+        let (parts, body) = response.into_parts();
+
+        let bytes = axum::body::to_bytes(body, usize::MAX)
+          .await
+          .map_err(|err| anyhow!(err))?;
+
+        if let Ok(api::SatInscription { id: None }) =
+          serde_json::from_slice::<api::SatInscription>(&bytes)
+        {
+          return task::block_in_place(|| Server::proxy(proxy, &path));
+        }
+
+        return Ok(Response::from_parts(parts, axum::body::Body::from(bytes)));
       }
     }
 
@@ -7036,6 +7055,66 @@ next
         value: Some(50 * COIN_VALUE),
         address: Some("bcrt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqdku202".to_string())
       }
+    );
+  }
+
+  #[test]
+  fn sat_at_index_proxy() {
+    let server = TestServer::builder()
+      .index_sats()
+      .chain(Chain::Regtest)
+      .build();
+
+    server.mine_blocks(1);
+
+    let inscription = Inscription {
+      content_type: Some("text/html".into()),
+      body: Some("foo".into()),
+      ..default()
+    };
+
+    let txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, inscription.to_witness())],
+      ..default()
+    });
+
+    server.mine_blocks(1);
+
+    let id = InscriptionId { txid, index: 0 };
+    let ordinal: u64 = 5000000000;
+
+    pretty_assert_eq!(
+      server.get_json::<api::SatInscription>(format!("/r/sat/{ordinal}/at/-1")),
+      api::SatInscription { id: Some(id) }
+    );
+
+    let server_with_proxy = TestServer::builder()
+      .chain(Chain::Regtest)
+      .server_option("--proxy", server.url.as_ref())
+      .build();
+    let sat_indexed_server_with_proxy = TestServer::builder()
+      .index_sats()
+      .chain(Chain::Regtest)
+      .server_option("--proxy", server.url.as_ref())
+      .build();
+
+    server_with_proxy.mine_blocks(1);
+    sat_indexed_server_with_proxy.mine_blocks(1);
+
+    pretty_assert_eq!(
+      server.get_json::<api::SatInscription>(format!("/r/sat/{ordinal}/at/-1")),
+      api::SatInscription { id: Some(id) }
+    );
+
+    pretty_assert_eq!(
+      server_with_proxy.get_json::<api::SatInscription>(format!("/r/sat/{ordinal}/at/-1")),
+      api::SatInscription { id: Some(id) }
+    );
+
+    pretty_assert_eq!(
+      sat_indexed_server_with_proxy
+        .get_json::<api::SatInscription>(format!("/r/sat/{ordinal}/at/-1")),
+      api::SatInscription { id: Some(id) }
     );
   }
 
