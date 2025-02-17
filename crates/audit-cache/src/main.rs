@@ -40,6 +40,13 @@ const ENDPOINTS: &[(&str, StatusCode, &str, &str)] = &[
     "HIT",
     "max-age=14400",
   ),
+  // Sat content is never cached
+  (
+    "/r/sat/1026903946383519/at/-1/content",
+    StatusCode::OK,
+    "BYPASS",
+    "",
+  ),
   ("/static/index.css", StatusCode::OK, "HIT", "max-age=14400"),
   ("/static/index.js", StatusCode::OK, "HIT", "max-age=14400"),
   ("/sat/FOO", StatusCode::BAD_REQUEST, "HIT", "max-age=14400"),
