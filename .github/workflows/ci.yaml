@@ -93,6 +93,13 @@ jobs:
         sudo apt-get install ripgrep
         ./bin/forbid
 
+    - name: Check for blacklist
+      run: |
+        if [[ -f blacklist.txt ]]; then
+          echo "error: found blacklist.txt"
+          exit 1
+        fi
+
   test:
     strategy:
       matrix:

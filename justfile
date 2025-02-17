@@ -232,3 +232,21 @@ swap host:
 
 changed-files tag:
   git diff --name-only {{tag}}
+
+test:
+  #!/usr/bin/env python3
+
+  import os, shutil
+
+  test = 'ltest' if shutil.which('cargo-ltest') else 'test'
+
+  with open('blacklist.txt') as f:
+    blacklist = f.read().splitlines()
+
+  command = ['cargo', test, '--', '--exact']
+
+  for test in blacklist:
+    command.append('--skip')
+    command.append(test)
+
+  os.execvp(command[0], command)
