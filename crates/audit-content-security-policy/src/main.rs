@@ -14,12 +14,12 @@ const SERVERS: &[(&str, &str, &str)] = &[
   (
     "signet.ordinals.net",
     "/content/7e1bc3b56b872aaf4d1aaf1565fac72182313c9142b207f9398afe263e234135i0",
-    "https://signet.ordinals.com/content/",
+    "https://signet.ordinals.com/",
   ),
   (
     "signet.ordinals.com",
     "/content/7e1bc3b56b872aaf4d1aaf1565fac72182313c9142b207f9398afe263e234135i0",
-    "https://signet.ordinals.com/content/",
+    "https://signet.ordinals.com/",
   ),
   (
     "testnet.ordinals.net",
