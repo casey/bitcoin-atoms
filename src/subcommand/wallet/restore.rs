@@ -69,7 +69,7 @@ impl Restore {
       Source::Mnemonic => {
         io::stdin().read_line(&mut buffer)?;
         let mnemonic = Mnemonic::from_str(&buffer)?;
-        Wallet::initialize(
+        Wallet::initialize_old(
           name,
           settings,
           mnemonic.to_seed(self.passphrase.unwrap_or_default()),

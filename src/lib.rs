@@ -35,6 +35,7 @@ use {
     tally::Tally,
   },
   anyhow::{anyhow, bail, ensure, Context, Error},
+  bdk_wallet::{self as bdk, KeychainKind, PersistedWallet},
   bip39::Mnemonic,
   bitcoin::{
     address::{Address, NetworkUnchecked},

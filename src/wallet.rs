@@ -12,7 +12,9 @@ use {
   index::entry::Entry,
   indicatif::{ProgressBar, ProgressStyle},
   log::log_enabled,
-  miniscript::descriptor::{DescriptorSecretKey, DescriptorXKey, Wildcard},
+  miniscript::descriptor::{
+    Descriptor, DescriptorPublicKey, DescriptorSecretKey, DescriptorXKey, Wildcard,
+  },
   redb::{Database, DatabaseError, ReadableTable, RepairSession, StorageError, TableDefinition},
   std::sync::Once,
   transaction_builder::TransactionBuilder,
@@ -20,11 +22,13 @@ use {
 
 pub mod batch;
 pub mod entry;
+pub mod persister;
 pub mod transaction_builder;
 pub mod wallet_constructor;
 
-const SCHEMA_VERSION: u64 = 1;
+const SCHEMA_VERSION: u64 = 2;
 
+define_table! { CHANGESET, (), &str }
 define_table! { RUNE_TO_ETCHING, u128, EtchingEntryValue }
 define_table! { STATISTICS, u64, u64 }
 
@@ -46,7 +50,7 @@ impl From<Statistic> for u64 {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
-pub struct Descriptor {
+pub struct DescriptorJson {
   pub desc: String,
   pub timestamp: bitcoincore_rpc::bitcoincore_rpc_json::Timestamp,
   pub active: bool,
@@ -58,7 +62,7 @@ pub struct Descriptor {
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub struct ListDescriptorsResult {
   pub wallet_name: String,
-  pub descriptors: Vec<Descriptor>,
+  pub descriptors: Vec<DescriptorJson>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -71,8 +75,8 @@ pub(crate) enum Maturity {
 }
 
 pub(crate) struct Wallet {
-  bitcoin_client: Client,
-  database: Database,
+  pub(crate) wallet: PersistedWallet<persister::Persister>,
+  database: Arc<Database>,
   has_rune_index: bool,
   has_sat_index: bool,
   rpc_url: Url,
@@ -85,6 +89,7 @@ pub(crate) struct Wallet {
   settings: Settings,
 }
 
+#[allow(dead_code)]
 impl Wallet {
   pub(crate) fn get_wallet_sat_ranges(&self) -> Result<Vec<(OutPoint, Vec<(u64, u64)>)>> {
     ensure!(
@@ -150,7 +155,7 @@ impl Wallet {
   }
 
   pub(crate) fn bitcoin_client(&self) -> &Client {
-    &self.bitcoin_client
+    panic!("attempt to access bitcoin client")
   }
 
   pub(crate) fn utxos(&self) -> &BTreeMap<OutPoint, TxOut> {
@@ -333,7 +338,7 @@ impl Wallet {
   pub(crate) fn get_change_address(&self) -> Result<Address> {
     Ok(
       self
-        .bitcoin_client
+        .bitcoin_client()
         .call::<Address<NetworkUnchecked>>("getrawchangeaddress", &["bech32m".into()])
         .context("could not get change addresses from wallet")?
         .require_network(self.chain().network())?,
@@ -466,7 +471,10 @@ impl Wallet {
     })
   }
 
-  fn check_descriptors(wallet_name: &str, descriptors: Vec<Descriptor>) -> Result<Vec<Descriptor>> {
+  fn check_descriptors(
+    wallet_name: &str,
+    descriptors: Vec<DescriptorJson>,
+  ) -> Result<Vec<DescriptorJson>> {
     let tr = descriptors
       .iter()
       .filter(|descriptor| descriptor.desc.starts_with("tr("))
@@ -487,7 +495,7 @@ impl Wallet {
   pub(crate) fn initialize_from_descriptors(
     name: String,
     settings: &Settings,
-    descriptors: Vec<Descriptor>,
+    descriptors: Vec<DescriptorJson>,
   ) -> Result {
     let client = Self::check_version(settings.bitcoin_rpc_client(Some(name.clone()))?)?;
 
@@ -520,7 +528,67 @@ impl Wallet {
     Ok(())
   }
 
+  #[allow(unused_variables, unreachable_code)]
   pub(crate) fn initialize(
+    name: String,
+    settings: &Settings,
+    seed: [u8; 64],
+    timestamp: bitcoincore_rpc::json::Timestamp,
+  ) -> Result {
+    let database = Wallet::create_database(&name, settings)?;
+
+    let network = settings.chain().network();
+
+    let secp = Secp256k1::new();
+
+    let master_private_key = Xpriv::new_master(network, &seed)?;
+
+    let fingerprint = master_private_key.fingerprint(&secp);
+
+    let derivation_path = DerivationPath::master()
+      .child(ChildNumber::Hardened { index: 86 })
+      .child(ChildNumber::Hardened {
+        index: u32::from(network != Network::Bitcoin),
+      })
+      .child(ChildNumber::Hardened { index: 0 });
+
+    let derived_private_key = master_private_key.derive_priv(&secp, &derivation_path)?;
+
+    let descriptor = |change: bool| -> Result<(
+      Descriptor<DescriptorPublicKey>,
+      BTreeMap<DescriptorPublicKey, DescriptorSecretKey>,
+    )> {
+      let secret_key = DescriptorSecretKey::XPrv(DescriptorXKey {
+        origin: Some((fingerprint, derivation_path.clone())),
+        xkey: derived_private_key,
+        derivation_path: DerivationPath::master().child(ChildNumber::Normal {
+          index: change.into(),
+        }),
+        wildcard: Wildcard::Unhardened,
+      });
+
+      let public_key = secret_key.to_public(&secp)?;
+
+      let mut key_map = BTreeMap::new();
+      key_map.insert(public_key.clone(), secret_key);
+
+      let descriptor = Descriptor::new_tr(public_key, None)?;
+
+      Ok((descriptor, key_map))
+    };
+
+    let mut persister = persister::Persister(Arc::new(database));
+
+    let mut wallet = bdk::Wallet::create(descriptor(false)?, descriptor(true)?)
+      .network(network)
+      .create_wallet(&mut persister)?;
+
+    wallet.persist(&mut persister)?;
+
+    Ok(())
+  }
+
+  pub(crate) fn initialize_old(
     name: String,
     settings: &Settings,
     seed: [u8; 64],
@@ -629,7 +697,117 @@ impl Wallet {
     )
   }
 
+  pub(crate) fn create_database(wallet_name: &String, settings: &Settings) -> Result<Database> {
+    let path = settings
+      .data_dir()
+      .join("wallets")
+      .join(format!("{wallet_name}.redb"));
+
+    if path.exists() {
+      bail!(
+        "wallet {} at `{}` already exists",
+        wallet_name,
+        path.display()
+      );
+    }
+
+    if let Err(err) = fs::create_dir_all(path.parent().unwrap()) {
+      bail!(
+        "failed to create data dir `{}`: {err}",
+        path.parent().unwrap().display()
+      );
+    }
+
+    let database = Database::builder().create(&path)?;
+
+    let mut tx = database.begin_write()?;
+    tx.set_quick_repair(true);
+
+    tx.open_table(CHANGESET)?;
+
+    tx.open_table(RUNE_TO_ETCHING)?;
+
+    tx.open_table(STATISTICS)?
+      .insert(&Statistic::Schema.key(), &SCHEMA_VERSION)?;
+
+    tx.commit()?;
+
+    Ok(database)
+  }
+
   pub(crate) fn open_database(wallet_name: &String, settings: &Settings) -> Result<Database> {
+    let path = settings
+      .data_dir()
+      .join("wallets")
+      .join(format!("{wallet_name}.redb"));
+
+    let db_path = path.clone().to_owned();
+    let once = Once::new();
+    let progress_bar = Mutex::new(None);
+    let integration_test = settings.integration_test();
+
+    let repair_callback = move |progress: &mut RepairSession| {
+      once.call_once(|| {
+        println!(
+          "Wallet database file `{}` needs recovery. This can take some time.",
+          db_path.display()
+        )
+      });
+
+      if !(cfg!(test) || log_enabled!(log::Level::Info) || integration_test) {
+        let mut guard = progress_bar.lock().unwrap();
+
+        let progress_bar = guard.get_or_insert_with(|| {
+          let progress_bar = ProgressBar::new(100);
+          progress_bar.set_style(
+            ProgressStyle::with_template("[repairing database] {wide_bar} {pos}/{len}").unwrap(),
+          );
+          progress_bar
+        });
+
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        progress_bar.set_position((progress.progress() * 100.0) as u64);
+      }
+    };
+
+    let database = match Database::builder()
+      .set_repair_callback(repair_callback)
+      .open(&path)
+    {
+      Ok(database) => {
+        {
+          let schema_version = database
+            .begin_read()?
+            .open_table(STATISTICS)?
+            .get(&Statistic::Schema.key())?
+            .map(|x| x.value())
+            .unwrap_or(0);
+
+          match schema_version.cmp(&SCHEMA_VERSION) {
+            cmp::Ordering::Less =>
+              bail!(
+                "wallet database at `{}` appears to have been built with an older, incompatible version of ord, consider deleting and rebuilding the index: index schema {schema_version}, ord schema {SCHEMA_VERSION}",
+                path.display()
+              ),
+            cmp::Ordering::Greater =>
+              bail!(
+                "wallet database at `{}` appears to have been built with a newer, incompatible version of ord, consider updating ord: index schema {schema_version}, ord schema {SCHEMA_VERSION}",
+                path.display()
+              ),
+            cmp::Ordering::Equal => {
+            }
+          }
+        }
+
+        database
+      }
+      Err(error) => bail!("failed to open wallet database: {error}"),
+    };
+
+    Ok(database)
+  }
+
+  pub(crate) fn open_database_old(wallet_name: &String, settings: &Settings) -> Result<Database> {
     let path = settings
       .data_dir()
       .join("wallets")

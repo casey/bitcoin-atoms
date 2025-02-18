@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct WalletConstructor {
   ord_client: reqwest::blocking::Client,
@@ -9,6 +10,7 @@ pub(crate) struct WalletConstructor {
   settings: Settings,
 }
 
+#[allow(dead_code)]
 impl WalletConstructor {
   pub(crate) fn construct(
     name: String,
@@ -44,101 +46,131 @@ impl WalletConstructor {
   }
 
   pub(crate) fn build(self) -> Result<Wallet> {
-    let database = Wallet::open_database(&self.name, &self.settings)?;
+    let database = Arc::new(Wallet::open_database(&self.name, &self.settings)?);
 
-    let bitcoin_client = {
-      let client =
-        Wallet::check_version(self.settings.bitcoin_rpc_client(Some(self.name.clone()))?)?;
+    let mut persister = persister::Persister(database.clone());
 
-      if !client.list_wallets()?.contains(&self.name) {
-        loop {
-          match client.load_wallet(&self.name) {
-            Ok(_) => {
-              break;
-            }
-            Err(bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::jsonrpc::Error::Rpc(err)))
-              if err.code == -4 && err.message == "Wallet already loading." =>
-            {
-              // wallet loading
-              eprint!(".");
-              thread::sleep(Duration::from_secs(3));
-              continue;
-            }
-            Err(bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::jsonrpc::Error::Rpc(err)))
-              if err.code == -35 =>
-            {
-              // wallet already loaded
-              break;
-            }
-            Err(err) => {
-              bail!("Failed to load wallet {}: {err}", self.name);
-            }
-          }
-        }
-      }
-
-      if client.get_wallet_info()?.private_keys_enabled {
-        Wallet::check_descriptors(
-          &self.name,
-          client
-            .call::<ListDescriptorsResult>("listdescriptors", &[serde_json::Value::Null])?
-            .descriptors,
-        )?;
-      }
-
-      client
+    let wallet = match bdk::Wallet::load()
+      .check_network(self.settings.chain().network())
+      .load_wallet(&mut persister)?
+    {
+      Some(wallet) => wallet,
+      None => bail!("no wallet found, create one first"),
     };
 
-    let bitcoin_block_count = bitcoin_client.get_block_count().unwrap() + 1;
-
-    if !self.no_sync {
-      for i in 0.. {
-        let ord_block_count = self.get("/blockcount")?.text()?.parse::<u64>().expect(
-          "wallet failed to retrieve block count from server. Make sure `ord server` is running.",
-        );
-
-        if ord_block_count >= bitcoin_block_count {
-          break;
-        } else if i == 20 {
-          bail!(
-            "`ord server` {} blocks behind `bitcoind`, consider using `--no-sync` to ignore this error",
-            bitcoin_block_count - ord_block_count
-          );
-        }
-        std::thread::sleep(Duration::from_millis(50));
-      }
-    }
-
-    let mut utxos = Self::get_utxos(&bitcoin_client)?;
-    let locked_utxos = Self::get_locked_utxos(&bitcoin_client)?;
-    utxos.extend(locked_utxos.clone());
-
-    let output_info = self.get_output_info(utxos.clone().into_keys().collect())?;
-
-    let inscriptions = output_info
-      .iter()
-      .flat_map(|(_output, info)| info.inscriptions.clone().unwrap_or_default())
-      .collect::<Vec<InscriptionId>>();
-
-    let (inscriptions, inscription_info) = self.get_inscriptions(&inscriptions)?;
-
-    let status = self.get_server_status()?;
-
     Ok(Wallet {
-      bitcoin_client,
+      wallet,
       database,
-      has_rune_index: status.rune_index,
-      has_sat_index: status.sat_index,
-      inscription_info,
-      inscriptions,
-      locked_utxos,
+      has_rune_index: false,
+      has_sat_index: false,
+      inscription_info: BTreeMap::new(),
+      inscriptions: BTreeMap::new(),
+      locked_utxos: BTreeMap::new(),
       ord_client: self.ord_client,
-      output_info,
+      output_info: BTreeMap::new(),
       rpc_url: self.rpc_url,
       settings: self.settings,
-      utxos,
+      utxos: BTreeMap::new(),
     })
   }
+
+  //  #[allow(unused_variables, unreachable_code, dead_code)]
+  //  pub(crate) fn build_old(self) -> Result<Wallet> {
+  //    let database = Wallet::open_database_old(&self.name, &self.settings)?;
+  //
+  //    let bitcoin_client = {
+  //      let client =
+  //        Wallet::check_version(self.settings.bitcoin_rpc_client(Some(self.name.clone()))?)?;
+  //
+  //      if !client.list_wallets()?.contains(&self.name) {
+  //        loop {
+  //          match client.load_wallet(&self.name) {
+  //            Ok(_) => {
+  //              break;
+  //            }
+  //            Err(bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::jsonrpc::Error::Rpc(err)))
+  //              if err.code == -4 && err.message == "Wallet already loading." =>
+  //            {
+  //              // wallet loading
+  //              eprint!(".");
+  //              thread::sleep(Duration::from_secs(3));
+  //              continue;
+  //            }
+  //            Err(bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::jsonrpc::Error::Rpc(err)))
+  //              if err.code == -35 =>
+  //            {
+  //              // wallet already loaded
+  //              break;
+  //            }
+  //            Err(err) => {
+  //              bail!("Failed to load wallet {}: {err}", self.name);
+  //            }
+  //          }
+  //        }
+  //      }
+  //
+  //      if client.get_wallet_info()?.private_keys_enabled {
+  //        Wallet::check_descriptors(
+  //          &self.name,
+  //          client
+  //            .call::<ListDescriptorsResult>("listdescriptors", &[serde_json::Value::Null])?
+  //            .descriptors,
+  //        )?;
+  //      }
+  //
+  //      client
+  //    };
+  //
+  //    let bitcoin_block_count = bitcoin_client.get_block_count().unwrap() + 1;
+  //
+  //    if !self.no_sync {
+  //      for i in 0.. {
+  //        let ord_block_count = self.get("/blockcount")?.text()?.parse::<u64>().expect(
+  //          "wallet failed to retrieve block count from server. Make sure `ord server` is running.",
+  //        );
+  //
+  //        if ord_block_count >= bitcoin_block_count {
+  //          break;
+  //        } else if i == 20 {
+  //          bail!(
+  //            "`ord server` {} blocks behind `bitcoind`, consider using `--no-sync` to ignore this error",
+  //            bitcoin_block_count - ord_block_count
+  //          );
+  //        }
+  //        std::thread::sleep(Duration::from_millis(50));
+  //      }
+  //    }
+  //
+  //    let mut utxos = Self::get_utxos(&bitcoin_client)?;
+  //    let locked_utxos = Self::get_locked_utxos(&bitcoin_client)?;
+  //    utxos.extend(locked_utxos.clone());
+  //
+  //    let output_info = self.get_output_info(utxos.clone().into_keys().collect())?;
+  //
+  //    let inscriptions = output_info
+  //      .iter()
+  //      .flat_map(|(_output, info)| info.inscriptions.clone().unwrap_or_default())
+  //      .collect::<Vec<InscriptionId>>();
+  //
+  //    let (inscriptions, inscription_info) = self.get_inscriptions(&inscriptions)?;
+  //
+  //    let status = self.get_server_status()?;
+  //
+  //    Ok(Wallet {
+  //      wallet:
+  //      database,
+  //      has_rune_index: status.rune_index,
+  //      has_sat_index: status.sat_index,
+  //      inscription_info,
+  //      inscriptions,
+  //      locked_utxos,
+  //      ord_client: self.ord_client,
+  //      output_info,
+  //      rpc_url: self.rpc_url,
+  //      settings: self.settings,
+  //      utxos,
+  //    })
+  //  }
 
   fn get_output_info(&self, outputs: Vec<OutPoint>) -> Result<BTreeMap<OutPoint, api::Output>> {
     let response = self.post("/outputs", &outputs)?;

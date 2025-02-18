@@ -1,5 +1,11 @@
 use super::*;
 
+#[derive(Serialize, Deserialize)]
+pub struct Output {
+  pub descriptor: String,
+  pub change_descriptor: String,
+}
+
 pub(crate) fn run(wallet: Wallet) -> SubcommandResult {
   eprintln!(
     "==========================================
@@ -8,9 +14,18 @@ pub(crate) fn run(wallet: Wallet) -> SubcommandResult {
 =========================================="
   );
 
-  Ok(Some(Box::new(
-    wallet
-      .bitcoin_client()
-      .call::<ListDescriptorsResult>("listdescriptors", &[serde_json::to_value(true)?])?,
-  )))
+  let descriptor = wallet
+    .wallet
+    .public_descriptor(KeychainKind::External)
+    .to_string();
+
+  let change_descriptor = wallet
+    .wallet
+    .public_descriptor(KeychainKind::Internal)
+    .to_string();
+
+  Ok(Some(Box::new(Output {
+    descriptor,
+    change_descriptor,
+  })))
 }

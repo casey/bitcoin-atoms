@@ -47,6 +47,7 @@ anyhow = { version = "1.0.90", features = ["backtrace"] }
 axum = { version = "0.8.1", features = ["http2"] }
 axum-server = "0.7.1"
 base64.workspace = true
+bdk_wallet = "1.1.0"
 bip322 = "0.0.9"
 bip39 = "2.0.0"
 bitcoin.workspace = true
